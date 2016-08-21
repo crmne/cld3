@@ -41,6 +41,17 @@ gn gen out/Default
 ninja -C out/Default third_party/cld_3/src:language_identifier_main
 out/Default/language_identifier_main
 ```
+
+### Python
+Included are Python bindings (via Cython). Building the extension does not
+require the chromium repository, instead only these libraries need to
+be installed:
+
+- Cython
+- Protobuf (with headers)
+
+To install the extension, just run `pip install` on the repository.
+
 ### Contact
 
 To ask questions or report issues please contact cld3-users@google.com.
