@@ -22,7 +22,7 @@ LanguagePrediction = namedtuple("LanguagePrediction",
                                 ("language", "probability", "is_reliable"))
 
 
-def get_language(str text, int min_bytes=0, int max_bytes=1000):
+def get_language(unicode text, int min_bytes=0, int max_bytes=1000):
     """ Get the most likely language for the given text.
 
     The prediction is based on the first N bytes where N is the minumum between
@@ -35,7 +35,7 @@ def get_language(str text, int min_bytes=0, int max_bytes=1000):
     return LanguagePrediction(res.language, res.probability, res.is_reliable)
 
 
-def get_frequent_languages(str text, int num_langs, int min_bytes=0,
+def get_frequent_languages(unicode text, int num_langs, int min_bytes=0,
                            int max_bytes=1000):
     """ Find the most frequent languages in the given text.
 
@@ -52,7 +52,8 @@ def get_frequent_languages(str text, int num_langs, int min_bytes=0,
     """
     cdef NNetLanguageIdentifier *ident = new NNetLanguageIdentifier(
         min_bytes, max_bytes)
-    cdef vector[Result] results = ident.FindTopNMostFreqLangs(text, num_langs)
+    cdef vector[Result] results = ident.FindTopNMostFreqLangs(
+        text.encode('utf8'), num_langs)
     out = []
     for res in results:
         out.append(LanguagePrediction(
