@@ -43,7 +43,7 @@ limitations under the License.
 #include <string>
 
 #include "base.h"
-#include "cld_3/protos/feature_extractor.pb.h"
+#include "cld_3/protos/src/feature_extractor.pb.h"
 
 namespace chrome_lang_id {
 
@@ -72,7 +72,17 @@ class FMLParser {
   void ParseParameter(FeatureFunctionDescriptor *result);
 
   // Returns true if end of source input has been reached.
-  bool eos() { return current_ == source_.end(); }
+  bool eos() const { return current_ == source_.end(); }
+
+  // Returns current character.  Other methods should access the current
+  // character through this method (instead of using *current_ directly): this
+  // method performs extra safety checks.
+  char CurrentChar() const {
+    // CLD3_DCHECK that we are reading from inside the string.
+    CLD3_DCHECK(current_ >= source_.begin());
+    CLD3_DCHECK(current_ < source_.end());
+    return *current_;
+  }
 
   // Item types.
   enum ItemTypes {

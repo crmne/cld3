@@ -24,9 +24,11 @@ limitations under the License.
 #include "base.h"
 #include "embedding_network.h"
 #include "registry.h"
+#include "relevant_script_feature.h"
 #include "script_span/generated_ulscript.h"
 #include "script_span/getonescriptspan.h"
-#include "cld_3/protos/sentence.pb.h"
+#include "script_span/text_processing.h"
+#include "cld_3/protos/src/sentence.pb.h"
 #include "sentence_features.h"
 #include "task_context.h"
 #include "workspace.h"
@@ -57,13 +59,43 @@ bool OrderBySecondDescending(const std::pair<string, float> &x,
   }
 }
 
+// Returns "true" if the languge prediction is reliable based on the
+// probability, and "false" otherwise.
+bool ResultIsReliable(const string &language, float probability) {
+  if (language == "hr" || language == "bs") {
+    return (probability >= NNetLanguageIdentifier::kReliabilityHrBsThreshold);
+  } else {
+    return (probability >= NNetLanguageIdentifier::kReliabilityThreshold);
+  }
+}
+
+// Finds the number of interchange-valid bytes to process.
+int FindNumValidBytesToProcess(const string &text) {
+  // Check if the size of the input text can fit into an int. If not, focus on
+  // the first std::numeric_limits<int>::max() bytes.
+  const int doc_text_size =
+      (text.size() < static_cast<size_t>(std::numeric_limits<int>::max()))
+          ? static_cast<int>(text.size())
+          : std::numeric_limits<int>::max();
+
+  // Truncate the input text if it is too long and find the span containing
+  // interchange-valid UTF8.
+  const int num_valid_bytes = CLD2::SpanInterchangeValid(
+      text.c_str(),
+      std::min(NNetLanguageIdentifier::kMaxNumInputBytesToConsider,
+               doc_text_size));
+
+  return num_valid_bytes;
+}
 }  // namespace
 
-const int NNetLanguageIdentifier::kMinNumBytesToConsider = 100;
-const int NNetLanguageIdentifier::kMaxNumBytesToConsider = 512;
+const int NNetLanguageIdentifier::kMinNumBytesToConsider = 140;
+const int NNetLanguageIdentifier::kMaxNumBytesToConsider = 700;
 const int NNetLanguageIdentifier::kMaxNumInputBytesToConsider = 10000;
-const char NNetLanguageIdentifier::kUnknown[] = "unknown";
-const float NNetLanguageIdentifier::kReliabilityThreshold = 0.53f;
+const int NNetLanguageIdentifier::kNumSnippets = 5;
+const char NNetLanguageIdentifier::kUnknown[] = "und";
+const float NNetLanguageIdentifier::kReliabilityThreshold = 0.7f;
+const float NNetLanguageIdentifier::kReliabilityHrBsThreshold = 0.5f;
 
 const string LanguageIdEmbeddingFeatureExtractor::ArgPrefix() const {
   return "language_identifier";
@@ -76,12 +108,23 @@ static WholeSentenceFeature *cbog_factory() {
   return new ContinuousBagOfNgramsFunction;
 }
 
+static WholeSentenceFeature *rsf_factory() { return new RelevantScriptFeature; }
+
+static WholeSentenceFeature *sf_factory() { return new ScriptFeature; }
+
 NNetLanguageIdentifier::NNetLanguageIdentifier(int min_num_bytes,
                                                int max_num_bytes)
     : num_languages_(TaskContextParams::GetNumLanguages()),
       network_(&nn_params_),
       min_num_bytes_(min_num_bytes),
       max_num_bytes_(max_num_bytes) {
+  CLD3_CHECK(max_num_bytes_ > 0);
+  CLD3_CHECK(min_num_bytes_ >= 0);
+  CLD3_CHECK(min_num_bytes_ < max_num_bytes_);
+
+  num_snippets_ = (max_num_bytes_ <= kNumSnippets) ? 1 : kNumSnippets;
+  snippet_size_ = max_num_bytes_ / num_snippets_;
+
   if (WholeSentenceFeature::registry() == nullptr) {
     // Create registry for our WholeSentenceFeature(s).
     RegisterableClass<WholeSentenceFeature>::CreateRegistry(
@@ -94,6 +137,16 @@ NNetLanguageIdentifier::NNetLanguageIdentifier(int min_num_bytes,
   static WholeSentenceFeature::Registry::Registrar cbog_registrar(
       WholeSentenceFeature::registry(), "continuous-bag-of-ngrams",
       "ContinuousBagOfNgramsFunction", __FILE__, __LINE__, cbog_factory);
+
+  // Register RelevantScriptFeature feature function.
+  static WholeSentenceFeature::Registry::Registrar rsf_registrar(
+      WholeSentenceFeature::registry(), "continuous-bag-of-relevant-scripts",
+      "RelevantScriptFeature", __FILE__, __LINE__, rsf_factory);
+
+  // Register ScriptFeature feature function.
+  static WholeSentenceFeature::Registry::Registrar sf_registrar(
+      WholeSentenceFeature::registry(), "script", "ScriptFeature", __FILE__,
+      __LINE__, sf_factory);
 
   // Get the model parameters, set up and initialize the model.
   TaskContext context;
@@ -114,7 +167,7 @@ void NNetLanguageIdentifier::Init(TaskContext *context) {
 }
 
 void NNetLanguageIdentifier::GetFeatures(
-    Sentence *sentence, vector<FeatureVector> *features) const {
+    Sentence *sentence, std::vector<FeatureVector> *features) const {
   // Feature workspace set.
   WorkspaceSet workspace;
   workspace.Reset(workspace_registry_);
@@ -131,16 +184,44 @@ string NNetLanguageIdentifier::GetLanguageName(int language_id) const {
 
 NNetLanguageIdentifier::Result NNetLanguageIdentifier::FindLanguage(
     const string &text) {
-  const int num_bytes_to_process =
-      std::min(static_cast<int>(text.size()), max_num_bytes_);
-  const int num_valid_bytes =
-      CLD2::SpanInterchangeValid(text.c_str(), num_bytes_to_process);
-  if (num_valid_bytes < min_num_bytes_) {
+  const int num_valid_bytes = FindNumValidBytesToProcess(text);
+
+  // Iterate over the input with ScriptScanner to clean up the text (e.g.,
+  // removing digits, punctuation, brackets).
+  // TODO(abakalov): Extract the code that does the clean-up out of
+  // ScriptScanner.
+  CLD2::ScriptScanner ss(text.c_str(), num_valid_bytes, /*is_plain_text=*/true);
+  CLD2::LangSpan script_span;
+  string cleaned;
+  while (ss.GetOneScriptSpanLower(&script_span)) {
+    // script_span has spaces at the beginning and the end, so there is no need
+    // for a delimiter.
+    cleaned.append(script_span.text, script_span.text_bytes);
+  }
+
+  if (static_cast<int>(cleaned.size()) < min_num_bytes_) {
     return Result();
   }
 
-  std::string text_to_process(text.c_str(), num_valid_bytes);
-  return FindLanguageOfValidUTF8(text_to_process);
+  // Copy to a vector because a non-const char* will be needed.
+  std::vector<char> text_to_process;
+  for (size_t i = 0; i < cleaned.size(); ++i) {
+    text_to_process.push_back(cleaned[i]);
+  }
+  text_to_process.push_back('\0');
+
+  // Remove repetitive chunks or ones containing mostly spaces.
+  const int chunk_size = 0;  // Use the default.
+  char *text_begin = &text_to_process[0];
+  const int new_length = CLD2::CheapSqueezeInplace(
+      text_begin, text_to_process.size() - 1, chunk_size);
+  if (new_length < min_num_bytes_) {
+    return Result();
+  }
+
+  const string squeezed_text_to_process =
+      SelectTextGivenBeginAndSize(text_begin, new_length);
+  return FindLanguageOfValidUTF8(squeezed_text_to_process);
 }
 
 NNetLanguageIdentifier::Result NNetLanguageIdentifier::FindLanguageOfValidUTF8(
@@ -151,7 +232,7 @@ NNetLanguageIdentifier::Result NNetLanguageIdentifier::FindLanguageOfValidUTF8(
 
   // Predict language.
   // TODO(salcianu): reuse vector<FeatureVector>.
-  vector<FeatureVector> features(feature_extractor_.NumEmbeddings());
+  std::vector<FeatureVector> features(feature_extractor_.NumEmbeddings());
   GetFeatures(&sentence, &features);
 
   EmbeddingNetwork::Vector scores;
@@ -175,7 +256,7 @@ NNetLanguageIdentifier::Result NNetLanguageIdentifier::FindLanguageOfValidUTF8(
   result.probability = exp(max_val - log_sum_exp);
 
   result.language = GetLanguageName(prediction_id);
-  result.is_reliable = (result.probability >= kReliabilityThreshold);
+  result.is_reliable = ResultIsReliable(result.language, result.probability);
   result.proportion = 1.0;
   return result;
 }
@@ -184,9 +265,10 @@ std::vector<NNetLanguageIdentifier::Result>
 NNetLanguageIdentifier::FindTopNMostFreqLangs(const string &text,
                                               int num_langs) {
   std::vector<Result> results;
-  const int num_valid_bytes = CLD2::SpanInterchangeValid(
-      text.c_str(),
-      std::min(kMaxNumInputBytesToConsider, static_cast<int>(text.size())));
+
+  // Truncate the input text if it is too long and find the span containing
+  // interchange-valid UTF8.
+  const int num_valid_bytes = FindNumValidBytesToProcess(text);
   if (num_valid_bytes == 0) {
     while (num_langs-- > 0) {
       results.emplace_back();
@@ -201,22 +283,26 @@ NNetLanguageIdentifier::FindTopNMostFreqLangs(const string &text,
   int total_num_bytes = 0;
   Result result;
   string language;
-  while (ss.GetOneScriptSpan(&script_span)) {
+  int chunk_size = 0;  // Use the default.
+  while (ss.GetOneScriptSpanLower(&script_span)) {
+    const int num_original_span_bytes = script_span.text_bytes;
+
+    // Remove repetitive chunks or ones containing mostly spaces.
+    const int new_length = CLD2::CheapSqueezeInplace(
+        script_span.text, script_span.text_bytes, chunk_size);
+    script_span.text_bytes = new_length;
+
     if (script_span.text_bytes < min_num_bytes_) {
       continue;
     }
-    total_num_bytes += script_span.text_bytes;
+    total_num_bytes += num_original_span_bytes;
 
-    const int num_bytes_to_process =
-        std::min(script_span.text_bytes, max_num_bytes_);
-    const int num_valid_bytes =
-        CLD2::SpanInterchangeValid(script_span.text, num_bytes_to_process);
-    const string span_text(script_span.text, num_valid_bytes);
-    result = FindLanguageOfValidUTF8(span_text);
+    const string selected_text = SelectTextGivenScriptSpan(script_span);
+    result = FindLanguageOfValidUTF8(selected_text);
     language = result.language;
-    lang_stats[language].byte_sum += script_span.text_bytes;
+    lang_stats[language].byte_sum += num_original_span_bytes;
     lang_stats[language].prob_sum +=
-        result.probability * script_span.text_bytes;
+        result.probability * num_original_span_bytes;
     lang_stats[language].num_chunks++;
   }
 
@@ -242,14 +328,7 @@ NNetLanguageIdentifier::FindTopNMostFreqLangs(const string &text,
     result.language = language;
     result.probability = stats.prob_sum / stats.byte_sum;
     result.proportion = stats.byte_sum / byte_sum;
-
-    // The reliability threshold does not help "hr" and "bs", so the predictions
-    // are always marked as reliable.
-    if (language == "hr" || language == "bs") {
-      result.is_reliable = true;
-    } else {
-      result.is_reliable = (result.probability >= kReliabilityThreshold);
-    }
+    result.is_reliable = ResultIsReliable(language, result.probability);
     results.push_back(result);
   }
 
@@ -258,6 +337,44 @@ NNetLanguageIdentifier::FindTopNMostFreqLangs(const string &text,
     results.emplace_back();
   }
   return results;
+}
+
+string NNetLanguageIdentifier::SelectTextGivenScriptSpan(
+    const CLD2::LangSpan &script_span) {
+  return SelectTextGivenBeginAndSize(script_span.text, script_span.text_bytes);
+}
+
+string NNetLanguageIdentifier::SelectTextGivenBeginAndSize(
+    const char *text_begin, int text_size) {
+  string output_text;
+
+  // If the size of the input is greater than the maxium number of bytes needed
+  // for a prediction, then concatenate snippets that are equally spread out
+  // throughout the input.
+  if (text_size > max_num_bytes_) {
+    const char *snippet_begin = nullptr;
+    const char *snippet_end = text_begin;
+
+    // Number of bytes between the snippets.
+    const int num_skip_bytes =
+        (text_size - max_num_bytes_) / (num_snippets_ + 1);
+
+    for (int i = 0; i < num_snippets_; ++i) {
+      // Using SpanInterchangeValid to find the offsets to ensure that we are
+      // not splitting a character in two.
+      const int actual_num_skip_bytes =
+          CLD2::SpanInterchangeValid(snippet_end, num_skip_bytes);
+      snippet_begin = snippet_end + actual_num_skip_bytes;
+      const int actual_snippet_size =
+          CLD2::SpanInterchangeValid(snippet_begin, snippet_size_);
+      snippet_end = snippet_begin + actual_snippet_size;
+      output_text.append(snippet_begin, actual_snippet_size);
+      output_text.append(" ");
+    }
+  } else {
+    output_text.append(text_begin, text_size);
+  }
+  return output_text;
 }
 
 }  // namespace chrome_lang_id

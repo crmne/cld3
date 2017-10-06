@@ -21,7 +21,7 @@ limitations under the License.
 #define SENTENCE_FEATURES_H_
 
 #include "feature_extractor.h"
-#include "cld_3/protos/sentence.pb.h"
+#include "cld_3/protos/src/sentence.pb.h"
 
 namespace chrome_lang_id {
 
