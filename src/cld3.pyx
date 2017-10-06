@@ -11,11 +11,13 @@ cdef extern from "nnet_language_identifier.h" namespace "chrome_lang_id::NNetLan
         bint is_reliable
         float proportion
 
+
 cdef extern from "nnet_language_identifier.h" namespace "chrome_lang_id":
     cdef cppclass NNetLanguageIdentifier:
         NNetLanguageIdentifier(int min_num_bytes, int max_num_bytes);
         Result FindLanguage(string &text)
         vector[Result] FindTopNMostFreqLangs(string &text, int num_langs)
+        const char kUnknown[]
 
 
 LanguagePrediction = namedtuple("LanguagePrediction",
@@ -36,13 +38,12 @@ def get_language(unicode text, int min_bytes=0, int max_bytes=1000):
         min_bytes, max_bytes)
     cdef Result res = ident.FindLanguage(text.encode('utf8'))
 
-    language = res.language.decode('utf8')
-    if language == 'und':
-        # Undefined language
-        return None
-    else:
+    if res.language != ident.kUnknown:
+        language = res.language.decode('utf8')
         return LanguagePrediction(language, res.probability, res.is_reliable,
             res.proportion)
+    else:
+        return None
 
 
 def get_frequent_languages(unicode text, int num_langs, int min_bytes=0,
@@ -67,8 +68,8 @@ def get_frequent_languages(unicode text, int num_langs, int min_bytes=0,
 
     out = []
     for res in results:
-        language = res.language.decode('utf8')
-        if language != 'und':
+        if res.language != ident.kUnknown:
+            language = res.language.decode('utf8')
             out.append(LanguagePrediction(
                 language, res.probability, res.is_reliable, res.proportion))
     return out
