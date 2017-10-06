@@ -57,6 +57,6 @@ ensure_protobuf()
 setup(
     name='cld3',
     version='0.1',
-    author="Google, Johannes Baiter",
+    author="Google, Johannes Baiter, Elizabeth Myers",
     description="CLD3 Python bindings",
     ext_modules=cythonize([ext]))
