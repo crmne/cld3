@@ -24,17 +24,25 @@ LanguagePrediction = namedtuple("LanguagePrediction",
 
 
 def get_language(unicode text, int min_bytes=0, int max_bytes=1000):
-    """ Get the most likely language for the given text.
+    """Get the most likely language for the given text.
 
     The prediction is based on the first N bytes where N is the minumum between
-    the number of interchange valid UTF8 bytes and max_num_bytes_. If N is less
-    than min_num_bytes_ long, then this function returns "unknown".
+    the number of interchange valid UTF8 bytes and max_bytes. If N is less
+    than min_bytes long, then this function returns None.
+
+    If the language cannot be determined, None will be returned.
     """
     cdef NNetLanguageIdentifier *ident = new NNetLanguageIdentifier(
         min_bytes, max_bytes)
     cdef Result res = ident.FindLanguage(text.encode('utf8'))
-    return LanguagePrediction(res.language.decode('utf8'), res.probability,
-        res.is_reliable, res.proportion)
+
+    language = res.language.decode('utf8')
+    if language == 'und':
+        # Undefined language
+        return None
+    else:
+        return LanguagePrediction(language, res.probability, res.is_reliable,
+            res.proportion)
 
 
 def get_frequent_languages(unicode text, int num_langs, int min_bytes=0,
@@ -43,22 +51,24 @@ def get_frequent_languages(unicode text, int num_langs, int min_bytes=0,
 
     Splits the input text (up to the first byte, if any, that is not
     interchange valid UTF8) into spans based on the script, predicts a language
-    for each span, and returns a vector storing the top num_langs most frequent
+    for each span, and returns a list storing the top num_langs most frequent
     languages along with additional information (e.g., proportions). The number
     of bytes considered for each span is the minimum between the size of the
-    span and max_num_bytes_. If more languages are requested than what is
-    available in the input, then for those cases kUnknown is returned. Also, if
-    the size of the span is less than min_num_bytes_ long, then the span is
-    skipped. If the input text is too long, only the first
-    kMaxNumInputBytesToConsider bytes are processed.
+    span and max_bytes. If more languages are requested than what is available
+    in the input, then the list returned will only have the number of results
+    found. Also, if the size of the span is less than min_bytes long, then the
+    span is skipped. If the input text is too long, only the first 1000 bytes
+    are processed.
     """
     cdef NNetLanguageIdentifier *ident = new NNetLanguageIdentifier(
         min_bytes, max_bytes)
     cdef vector[Result] results = ident.FindTopNMostFreqLangs(
         text.encode('utf8'), num_langs)
+
     out = []
     for res in results:
-        out.append(LanguagePrediction(
-            res.language.decode('utf8'), res.probability, res.is_reliable,
-            res.proportion))
+        language = res.language.decode('utf8')
+        if language != 'und':
+            out.append(LanguagePrediction(
+                language, res.probability, res.is_reliable, res.proportion))
     return out
