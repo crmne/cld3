@@ -1,7 +1,7 @@
 #!/usr/bin/env python
 
 import subprocess
-from os import path
+from os import path, makedirs
 
 from setuptools import setup, Extension
 from distutils.command.build import build
@@ -89,6 +89,7 @@ setup(
     version="0.2",
     cmdclass={"build": BuildProtobuf},
     author="Google, Johannes Baiter, Elizabeth Myers",
+    author_email="elizabeth@interlinked.me",
     description="CLD3 Python bindings",
     long_description=LONG_DESCRIPTION,
     license="Apache2",
