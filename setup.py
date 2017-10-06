@@ -86,7 +86,7 @@ ext = Extension(
 
 setup(
     name="cld3",
-    version="0.2",
+    version="0.2.1",
     cmdclass={"build": BuildProtobuf},
     author="Google, Johannes Baiter, Elizabeth Myers",
     author_email="elizabeth@interlinked.me",
