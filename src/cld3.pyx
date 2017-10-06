@@ -19,7 +19,8 @@ cdef extern from "nnet_language_identifier.h" namespace "chrome_lang_id":
 
 
 LanguagePrediction = namedtuple("LanguagePrediction",
-                                ("language", "probability", "is_reliable"))
+                                ("language", "probability", "is_reliable",
+                                 "proportion"))
 
 
 def get_language(unicode text, int min_bytes=0, int max_bytes=1000):
@@ -33,7 +34,7 @@ def get_language(unicode text, int min_bytes=0, int max_bytes=1000):
         min_bytes, max_bytes)
     cdef Result res = ident.FindLanguage(text.encode('utf8'))
     return LanguagePrediction(res.language.decode('utf8'), res.probability,
-        res.is_reliable)
+        res.is_reliable, res.proportion)
 
 
 def get_frequent_languages(unicode text, int num_langs, int min_bytes=0,
@@ -58,5 +59,6 @@ def get_frequent_languages(unicode text, int num_langs, int min_bytes=0,
     out = []
     for res in results:
         out.append(LanguagePrediction(
-            res.language.decode('utf8'), res.probability, res.is_reliable))
+            res.language.decode('utf8'), res.probability, res.is_reliable,
+            res.proportion))
     return out
