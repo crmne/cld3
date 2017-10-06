@@ -32,7 +32,8 @@ def get_language(unicode text, int min_bytes=0, int max_bytes=1000):
     cdef NNetLanguageIdentifier *ident = new NNetLanguageIdentifier(
         min_bytes, max_bytes)
     cdef Result res = ident.FindLanguage(text.encode('utf8'))
-    return LanguagePrediction(res.language, res.probability, res.is_reliable)
+    return LanguagePrediction(res.language.decode('utf8'), res.probability,
+        res.is_reliable)
 
 
 def get_frequent_languages(unicode text, int num_langs, int min_bytes=0,
@@ -57,5 +58,5 @@ def get_frequent_languages(unicode text, int num_langs, int min_bytes=0,
     out = []
     for res in results:
         out.append(LanguagePrediction(
-            res.language, res.probability, res.is_reliable))
+            res.language.decode('utf8'), res.probability, res.is_reliable))
     return out
