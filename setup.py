@@ -64,7 +64,7 @@ class BuildProtobuf(build):
     def run(self):
         if not path.exists("src/cld_3/protos"):
             # Create protobufs dir
-            os.makedirs("src/cld_3/protos")
+            makedirs("src/cld_3/protos")
 
         # Build protobuf stuff
         command = ["protoc"]
