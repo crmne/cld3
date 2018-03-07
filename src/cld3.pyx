@@ -48,7 +48,7 @@ def get_language(unicode text, int min_bytes=0, int max_bytes=1000):
 
 def get_frequent_languages(unicode text, int num_langs, int min_bytes=0,
                            int max_bytes=1000):
-    """ Find the most frequent languages in the given text.
+    """Find the most frequent languages in the given text.
 
     Splits the input text (up to the first byte, if any, that is not
     interchange valid UTF8) into spans based on the script, predicts a language
@@ -73,3 +73,5 @@ def get_frequent_languages(unicode text, int num_langs, int min_bytes=0,
             out.append(LanguagePrediction(
                 language, res.probability, res.is_reliable, res.proportion))
     return out
+
+del namedtuple
