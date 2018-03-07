@@ -25,8 +25,8 @@ LanguagePrediction(language='en', probability=0.9999980926513672, is_reliable=Tr
 
 In short:
 
-`get_language` returns the most likely language.
+`get_language` returns the most likely language as the named tuple `LanguagePrediction`. Proportion is always 1.0 when called in this way.
 
-`get_frequent_languages` will return the top number of guesses, up to a maximum specified (in the example, 5). The maximum is mandatory.
+`get_frequent_languages` will return the top number of guesses, up to a maximum specified (in the example, 5). The maximum is mandatory. Proportion will be set to the proportion of bytes found to be the target language in the list.
 
 In the normal cld3 library, "und" may be returned as a language for unknown languages (with no other stats given). This library filters that result out as extraneous; if the language couldn't be detected, nothing will be returned. This also means, as a consequence, `get_frequent_languages` may return fewer results than what you asked for, or none at all.
