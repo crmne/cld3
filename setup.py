@@ -51,7 +51,7 @@ ext = Extension(
     include_dirs=["./src", "./src/cld_3/protos/"],
     libraries=['protobuf'],
     language='c++',
-    extra_compile_args=['-std=c++11'])
+    extra_compile_args=['-std=c++11', '-stdlib=libc++'])
 
 ensure_protobuf()
 setup(
