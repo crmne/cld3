@@ -10,8 +10,7 @@ be installed:
 - msgpack
 - Protobuf (with headers and protoc)
 
-To install the extension, just run `pip install` on the repository URL, or use
-`pip install cld3`.
+To install the extension, from this repo, run `pip install https://github.com/ThothMedia/cld3/archive/master.zip`
 
 ## Usage
 Here's some examples:
