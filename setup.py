@@ -41,9 +41,11 @@ SOURCES = ["src/cld3.pyx",
            "src/utils.cc",
            "src/workspace.cc"]
 
-INCLUDES = ["./src", "./src/cld_3/protos/"]
+INCLUDES = ["./src", "./src/cld_3/protos/", "/usr/local/include"]
 
 LIBRARIES = ["protobuf"]
+
+LIBRARY_DIRS = ["/usr/local/lib"]
 
 LONG_DESCRIPTION = \
 """Python bindings for the CLD3 language classification library by Google."""
@@ -81,6 +83,7 @@ ext = Extension(
     sources=SOURCES,
     include_dirs=INCLUDES,
     libraries=LIBRARIES,
+    library_dirs=LIBRARY_DIRS,
     language="c++",
     extra_compile_args=["-std=c++11"])
 
