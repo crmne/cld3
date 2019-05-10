@@ -10,7 +10,7 @@ be installed:
 - msgpack
 - Protobuf (with headers and protoc)
 
-To install the extension, from this repo, run `pip install https://github.com/ThothMedia/cld3/archive/master.zip`
+To install the extension, from this repo, run `pip install https://github.com/crmne/cld3/archive/master.zip`
 
 ## Usage
 Here's some examples:
